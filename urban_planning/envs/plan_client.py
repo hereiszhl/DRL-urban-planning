@@ -388,6 +388,8 @@ class PlanClient(object):
 
         return mask
 
+    #简化多边形的形状。简化过程可以减少多边形的顶点数量，这对于地图绘制和空间分析非常有用，因为它可以减少计算量并提高处理效率。
+    #简化后的多边形仍然保留了原始多边形的基本形状和特征，但以更少的数据表示。
     def _simplify_polygon(self,
                           polygon: Polygon,
                           intersection: Point) -> Tuple[Polygon, GeoSeries, Text, List, float]:
@@ -431,6 +433,7 @@ class PlanClient(object):
 
         return polygon, polygon_boundary, relation, edges, distance
 
+    #切割多边形
     def _slice_polygon(self, polygon: Polygon, intersection: Point, land_use_type: int) -> Polygon:
         """Slice the polygon from the given intersection.
 
@@ -472,6 +475,7 @@ class PlanClient(object):
         land_use_polygon = get_intersection_polygon_with_maximum_area(land_use_polygon, polygon)
         return land_use_polygon
 
+    #将处理完后剩余的地块添加回地理数据库中
     def _add_remaining_feasible_blocks(self, feasible_polygon: Polygon, land_use_polygon: Polygon) -> None:
         """Add remaining feasible blocks back to gdf.
 
@@ -500,6 +504,7 @@ class PlanClient(object):
             raise ValueError(
                 error_msg + '\nThe area of remaining feasible region is 0, but land_use does not equals to feasible.')
 
+    #将简化后的多边形对齐到原图上
     def _simplify_snap_polygon(self, polygon: Polygon) -> Tuple[Polygon, MultiPoint, List]:
         """Simplify the polygon and snap it to existing intersections.
 
@@ -541,6 +546,7 @@ class PlanClient(object):
             raise ValueError(error_msg + '\nThe type of new intersections is not point or multipoint or empty.')
         return polygon, intersections, new_intersections
 
+    #导入简化多边形后，将新的交点添加到地理数据库中
     def _add_new_intersections(self,
                                land_use_polygon: Polygon,
                                intersections: MultiPoint,
@@ -587,6 +593,7 @@ class PlanClient(object):
                 self._gdf.at[road_or_boundary_to_split_id, 'existence'] = False
             self._gdf['geometry'] = self._gdf['geometry'].apply(lambda x: snap(x, new_intersection, self.EPSILON))
 
+    #导入简化多边形后，将新的边界添加到地理数据库中
     def _add_new_boundaries(self, land_use_polygon: Polygon) -> None:
         """Add new boundaries to gdf.
 
@@ -617,6 +624,7 @@ class PlanClient(object):
                 columns=['id', 'type', 'existence', 'geometry']).set_index('id')
             self._gdf = pd.concat([self._gdf, boundary_gdf])
 
+    #导入简化多边形后，将新的土地利用情况添加到地理数据库中
     def _add_land_use_polygon(self, land_use_polygon: Polygon, land_use_type: int) -> None:
         """Add land use polygon to gdf.
 
