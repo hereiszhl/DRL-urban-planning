@@ -640,6 +640,7 @@ class PlanClient(object):
         land_use_gdf['sc'] = momepy.SquareCompactness(land_use_gdf).series
         self._gdf = pd.concat([self._gdf, land_use_gdf])
 
+    #上述步骤完成后，更新地理数据库
     def _update_gdf_without_building_boundaries(self,
                                           land_use_polygon: Polygon,
                                           land_use_type: int,
@@ -689,6 +690,7 @@ class PlanClient(object):
 
         return land_use_polygon
 
+   #从图中选择一个可用的区块与交点
     def _get_chosen_feasible_block_and_intersection(self, action: int) -> Tuple[int, int]:
         """Get the chosen feasible block and intersection
 
@@ -698,12 +700,22 @@ class PlanClient(object):
         Returns:
             Tuple of the chosen (feasible_block_id, intersection_id).
         """
-        chosen_pair = self._current_graph_edges_with_id[action]
-        if self._gdf.loc[chosen_pair[0]]['type'] == city_config.FEASIBLE:
-            return chosen_pair[0], chosen_pair[1]
+        #参数：action - 选定的图边缘
+        chosen_pair = self._current_graph_edges_with_id[action] #通过参数 action 接收一个整数，这个整数代表图中的一条边
+        #函数会从 _current_graph_edges_with_id 映射中查找与这个 action 对应的区块ID和交点ID的配对。
+        if self._gdf.loc[chosen_pair[0]]['type'] == city_config.FEASIBLE: #检查这个区块是否被标记为可行（FEASIBLE）。
+            ### 函数的末尾进行顺序颠倒的原因是为了确保返回的元组始终是（可行区块ID, 交点ID）的格式。
+            ### 目的是为了保持一致性，无论 chosen_pair 中哪个元素是可行区块，都能正确地返回可行区块ID和交点ID。
+            ### 这对于后续的逻辑处理和数据结构的一致性非常重要。
+            
+            #如果 chosen_pair[0]（即第一个元素）代表的区块是可行的，那么函数就返回 (chosen_pair[0], chosen_pair[1])，这符合预期的格式
+            return chosen_pair[0], chosen_pair[1]  
         else:
+            #如果 chosen_pair[0] 代表的区块不是可行的，那么函数假设 chosen_pair[1]（即第二个元素）是可行区块，
+            #并返回 (chosen_pair[1], chosen_pair[0])，以确保可行区块ID始终是返回元组的第一个元素。
             return chosen_pair[1], chosen_pair[0]
 
+    #使用整个可行区块
     def _use_whole_feasible(self, feasible_polygon: Polygon, land_use_type: int) -> Polygon:
         """Use the whole feasible block.
 
@@ -711,11 +723,14 @@ class PlanClient(object):
             feasible_polygon: polygon of the feasible block.
             land_use_type: land use type of the new land use.
         """
-        land_use_polygon = feasible_polygon
+        #参数：feasible_polygon - 可行区块的多边形；land_use_type - 新土地利用的类型。
+        land_use_polygon = feasible_polygon 
         land_use_polygon = self._update_gdf(
-            land_use_polygon, land_use_type, build_boundary=False, error_msg='Whole feasible.')
-        return land_use_polygon
+            land_use_polygon, land_use_type, build_boundary=False, error_msg='Whole feasible.') #调用 _update_gdf 函数来更新GDF
+        return land_use_polygon #更新后的土地利用多边形
 
+    #在指定的区块和交点位置放置特定土地利用类型
+    #确保了土地利用的放置既符合土地利用类型的面积要求，又考虑到了土地的最佳利用
     def _place_land_use(self, land_use_type: int, feasible_id: int, intersection_id: int) -> Tuple[float, int]:
         """Place the land use at the given action position.
 
@@ -728,34 +743,40 @@ class PlanClient(object):
             The area of the land use.
             The actual land use type.
         """
-        actual_land_use_type = land_use_type
-        feasible_polygon = self._gdf.loc[feasible_id, 'geometry']
-        if feasible_polygon.area*self._cell_area <= self._required_max_area[land_use_type]:
-            land_use_polygon = self._use_whole_feasible(feasible_polygon, land_use_type)
+        #参数：land_use_type - 要放置的土地利用类型；feasible_id - 可行区块的ID；intersection_id - 交点的ID。
+        actual_land_use_type = land_use_type #定义了一个变量 actual_land_use_type 来存储最终确定的土地利用类型，初始值为输入的 land_use_type。
+        feasible_polygon = self._gdf.loc[feasible_id, 'geometry'] #通过 feasible_id 从地理数据框架（GDF）中获取对应的可行区块多边形 feasible_polygon
+       
+        if feasible_polygon.area*self._cell_area <= self._required_max_area[land_use_type]: ###检查可行区块的面积是否小于或等于该土地利用类型所需的最大面积
+            land_use_polygon = self._use_whole_feasible(feasible_polygon, land_use_type) ###如果是，就使用整个区块作为土地利用区域
         else:
             intersection = self._gdf.loc[intersection_id, 'geometry']
-            land_use_polygon = self._slice_polygon(feasible_polygon, intersection, land_use_type)
-            if land_use_polygon.area < self.EPSILON:
+            land_use_polygon = self._slice_polygon(feasible_polygon, intersection, land_use_type) #如果不是，选定区块太大了，会尝试将区块切割成更小的部分来满足土地利用的需求
+            if land_use_polygon.area < self.EPSILON:  #如果切割后的区块面积太小，无法满足最小面积要求，函数会抛出一个错误
                 error_msg = 'feasible polygon: {}'.format(feasible_polygon)
                 error_msg += '\nintersection: {}'.format(intersection)
                 error_msg += '\nland_use polygon: {}'.format(land_use_polygon)
                 raise ValueError(error_msg + '\nThe area of sliced land_use_polygon is near 0.')
-            if (feasible_polygon.area - land_use_polygon.area)*self._cell_area <= self._common_min_area:
-                land_use_polygon = self._use_whole_feasible(feasible_polygon, land_use_type)
+            if (feasible_polygon.area - land_use_polygon.area)*self._cell_area <= self._common_min_area: #如果切割后的地块小于或等于公共最小面积，
+                land_use_polygon = self._use_whole_feasible(feasible_polygon, land_use_type)  #则函数决定使用整个可行区块。
             else:
-                if land_use_polygon.area*self._cell_area < self._required_min_area[land_use_type]:
-                    land_use_polygon = self._update_gdf(land_use_polygon, city_config.GREEN_S)
+                if land_use_polygon.area*self._cell_area < self._required_min_area[land_use_type]: ##如果切割后的地块小于该土地利用类型所需的最小面积，
+                    land_use_polygon = self._update_gdf(land_use_polygon, city_config.GREEN_S) ##则将此畸零地块设置为绿地
                     actual_land_use_type = city_config.GREEN_S
+                ## 如果切割后的土地利用多边形 land_use_polygon 的面积乘以单元格面积不小于该土地利用类型所需的最小面积
+                ## 那么就不需要将土地利用类型更改为 city_config.GREEN_S。在这种情况下，land_use_polygon 
+                ## 已经是一个适合的土地利用区域，因此代码直接调用 _update_gdf 函数来更新地理数据框架（GDF）。
                 else:
                     land_use_polygon = self._update_gdf(land_use_polygon, land_use_type)
 
                 self._add_remaining_feasible_blocks(feasible_polygon, land_use_polygon)
 
-        self._gdf.at[feasible_id, 'existence'] = False
+        self._gdf.at[feasible_id, 'existence'] = False #函数将可行区块在GDF中的存在标记为 False，表示该区块已被使用。
 
         land_use_area = land_use_polygon.area*self._cell_area
-        return land_use_area, actual_land_use_type
+        return land_use_area, actual_land_use_type  #土地利用的面积和实际土地利用类型的元组
 
+    #在给定的动作位置放置土地利用
     def place_land_use(self, land_use: Dict, action: int) -> None:
         """Place the land use at the given action position.
 
@@ -766,15 +787,17 @@ class PlanClient(object):
         Returns:
             True if the land_use is successfully placed, False otherwise.
         """
-        feasible_id, intersection_id = self._get_chosen_feasible_block_and_intersection(action)
-        land_use_area, actual_land_use_type = self._place_land_use(land_use['type'], feasible_id, intersection_id)
+        #参数：land_use - 包含当前土地利用类型、x、y、面积、宽度和高度的字典；action - 要采取的动作（指示选定图边缘的整数）。
+        feasible_id, intersection_id = self._get_chosen_feasible_block_and_intersection(action)  #使用 _get_chosen_feasible_block_and_intersection 函数来获取可行区块和交点
+        land_use_area, actual_land_use_type = self._place_land_use(land_use['type'], feasible_id, intersection_id) #调用 _place_land_use 函数来放置土地利用类型，并更新统计数据。
         self._update_stats(actual_land_use_type, land_use_area)
 
+    #选择一个边界
     def _get_chosen_boundary(self, action: int) -> int:
         """Get the chosen boundary.
 
         Args:
-            action: the chosen graph node.
+            action: the chosen graph node. ##参数 action 是一个整数，代表图中的一个节点
 
         Returns:
             The chosen boundary.
@@ -784,6 +807,7 @@ class PlanClient(object):
             raise ValueError('The build road action is not boundary node.')
         return chosen_boundary
 
+    # 用于在地理数据框架（GDF）中建立道路
     def build_road(self, action: int) -> None:
         """Build the road at the given action position.
 
