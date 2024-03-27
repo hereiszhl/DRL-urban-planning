@@ -21,7 +21,7 @@ from khrylib.utils import set_land_use_array_from_dict
 
 class PlanClient(object):
     """Defines the PlanClient class."""
-    PLAN_ORDER = np.array([
+    PLAN_ORDER = np.array([  #确定规划元素的处理优先级
         city_config.HOSPITAL_L,
         city_config.SCHOOL,
         city_config.HOSPITAL_S,
@@ -31,10 +31,10 @@ class PlanClient(object):
         city_config.OFFICE,
         city_config.BUSINESS,
         city_config.GREEN_S], dtype=np.int32)
-    EPSILON = 1E-4
-    DEG_TOL = 1
-    SNAP_EPSILON = 1
-
+    EPSILON = 1E-4  # 用于浮点数比较的小数
+    DEG_TOL = 1   # 角度容差
+    SNAP_EPSILON = 1     # 对齐操作的容差
+### EPSILON、DEG_TOL 和 SNAP_EPSILON 是类属性，它们定义了一些数值常量，可能用于计算时的容差或精度控制
     def __init__(self, objectives_plan_file: Text, init_plan_file: Text) -> None:
         """Creates a PlanClient client object.
 
@@ -42,9 +42,10 @@ class PlanClient(object):
             objectives_plan_file: Path to the file of community objectives.
             init_plan_file: Path to the file of initial plan.
         """
-        file_path = 'urban_planning/cfg/**/{}.yaml'.format(objectives_plan_file)
+        # 构造函数，用于创建 PlanClient 对象，并加载规划目标和初始规划文件
+        file_path = 'urban_planning/cfg/**/{}.yaml'.format(objectives_plan_file)  #输入规划目标的文件位置
         self.objectives = load_yaml(file_path)
-        file_path = 'urban_planning/cfg/**/{}.pickle'.format(init_plan_file)
+        file_path = 'urban_planning/cfg/**/{}.pickle'.format(init_plan_file)   #输入原始土地情况文件的位置
         self.init_plan = load_pickle(file_path)
         self.init_objectives()
         self.init_constraints()
@@ -52,13 +53,14 @@ class PlanClient(object):
 
     def init_objectives(self) -> None:
         """Initializes objectives of different land uses."""
-        objectives = self.objectives
-        self._grid_cols = objectives['community']['grid_cols']
+        objectives = self.objectives   # 从 self.objectives 属性中获取社区和土地用途的目标
+        self._grid_cols = objectives['community']['grid_cols']    # 初始化社区网格的列数、行数、单元格边长和面积
         self._grid_rows = objectives['community']['grid_rows']
         self._cell_edge_length = objectives['community']['cell_edge_length']
-        self._cell_area = self._cell_edge_length ** 2
+        self._cell_area = self._cell_edge_length ** 2   # 计算单元格面积
 
-        land_use_types_to_plan = objectives['objectives']['land_use']
+        # 获取计划中包含的土地用途类型，并将它们转换为对应的 ID
+        land_use_types_to_plan = objectives['objectives']['land_use']    
         land_use_to_plan = np.array(
             [city_config.LAND_USE_ID_MAP[land_use] for land_use in land_use_types_to_plan],
             dtype=np.int32)
@@ -77,22 +79,27 @@ class PlanClient(object):
         set_land_use_array_from_dict(
             self._required_plan_count, required_plan_count, city_config.LAND_USE_ID_MAP)
 
-    def init_constraints(self) -> None:
+    def init_constraints(self) -> None:  # 用于初始化不同土地使用的约束条件
         """Initializes constraints of different land uses."""
         objectives = self.objectives
         self.init_specific_constraints(objectives['constraints'])
         self.init_common_constraints()
 
-    def init_specific_constraints(self, constraints: Dict) -> None:
+    
+    def init_specific_constraints(self, constraints: Dict) -> None:    #导入适用于特定土地类型的规划约束条件
         """Initializes constraints of specific land uses.
 
         Args:
             constraints: Constraints of specific land uses.
         """
+
+        # 初始化四个NumPy数组来存储不同土地类型的最大面积、最小面积、最大边长和最小边长的约束。
+        # 确保土地使用规划满足特定的空间约束，如面积和边长。
         self._required_max_area = np.zeros(city_config.NUM_TYPES, dtype=np.float32)
         required_max_area = constraints['max_area']
         set_land_use_array_from_dict(self._required_max_area, required_max_area, city_config.LAND_USE_ID_MAP)
 
+        # set_land_use_array_from_dict 函数用于根据 city_config.LAND_USE_ID_MAP 映射，从 constraints 字典中提取相应的值并设置到数组中。
         self._required_min_area = np.zeros(city_config.NUM_TYPES, dtype=np.float32)
         required_min_area = constraints['min_area']
         set_land_use_array_from_dict(self._required_min_area, required_min_area, city_config.LAND_USE_ID_MAP)
@@ -107,7 +114,7 @@ class PlanClient(object):
         set_land_use_array_from_dict(
             self._required_min_edge_length, required_min_edge_length, city_config.LAND_USE_ID_MAP)
 
-    def init_common_constraints(self) -> None:
+    def init_common_constraints(self) -> None:    # 导入适用于所有土地类型的约束条件
         """Initializes common constraints of difference land uses."""
         self._common_max_area = self._required_max_area[self._plan_order].max()
         self._common_min_area = self._required_min_area[self._plan_order].min()
@@ -116,25 +123,25 @@ class PlanClient(object):
         self._min_edge_grid = round(self._common_min_edge_length / self._cell_edge_length)
         self._max_edge_grid = round(self._common_max_edge_length / self._cell_edge_length)
 
-    def get_common_max_area(self) -> float:
+    def get_common_max_area(self) -> float:  #返回所有土地使用类型的共同最大面积
         """Returns the required maximum area of all land uses."""
         return self._common_max_area
 
-    def get_common_max_edge_length(self) -> float:
+    def get_common_max_edge_length(self) -> float:  #返回所有土地使用类型的共同最大边长
         """Returns the required maximum edge length of all land uses."""
         return self._common_max_edge_length
 
-    def _add_domain_features(self) -> None:
+    def _add_domain_features(self) -> None:  #向地理数据框架（gdf）添加几何特征，如矩形度、等效矩形指数和正方形紧凑度
         """Adds domain features to the gdf."""
         self._gdf['rect'] = momepy.Rectangularity(self._gdf[self._gdf.geom_type == 'Polygon']).series
         self._gdf['eqi'] = momepy.EquivalentRectangularIndex(self._gdf[self._gdf.geom_type == 'Polygon']).series
         self._gdf['sc'] = momepy.SquareCompactness(self._gdf[self._gdf.geom_type == 'Polygon']).series
 
-    def get_init_plan(self) -> Dict:
+    def get_init_plan(self) -> Dict:   #获取初始的规划方案
         """Returns the initial plan."""
         return self.init_plan
 
-    def restore_plan(self) -> None:
+    def restore_plan(self) -> None:   #恢复初始的规划方案
         """Restore the initial plan."""
         self._initial_gdf = self.init_plan['gdf']
         self._gdf = copy.deepcopy(self._initial_gdf)
@@ -144,7 +151,7 @@ class PlanClient(object):
         self._init_stats()
         self._init_counter()
 
-    def load_plan(self, gdf: GeoDataFrame) -> None:
+    def load_plan(self, gdf: GeoDataFrame) -> None:   #加载一个新的规划方案
         """Loads the given plan.
 
         Args:
@@ -152,7 +159,7 @@ class PlanClient(object):
         """
         self._gdf = copy.deepcopy(gdf)
 
-    def _load_concept(self, concept: List) -> None:
+    def _load_concept(self, concept: List) -> None:    #初始化规划方案的概念
         """Initializes the planning concept of the plan.
 
         Args:
@@ -160,8 +167,10 @@ class PlanClient(object):
         """
         self._concept = concept
 
-    def _init_stats(self) -> None:
+    def _init_stats(self) -> None:    #初始化规划方案的各项数据，如不同土地使用类型的面积，比例和数量等。
         """Initialize statistics of the plan."""
+        #确定所需要增加或减少的规划面积。首先计算存在的地块的总面积和外部地块的面积，
+        #然后计算社区区域的面积（总面积减去外部面积）。接着，它根据社区区域的面积和预定的规划面积比例计算所需的规划面积。
         gdf = self._gdf[self._gdf['existence'] == True]
         total_area = gdf.area.sum()*self._cell_area
         outside_area = gdf[gdf['type'] == city_config.OUTSIDE].area.sum()*self._cell_area
@@ -173,22 +182,26 @@ class PlanClient(object):
         self._plan_count = np.zeros(city_config.NUM_TYPES, dtype=np.int32)
         self._compute_stats()
 
-    def _compute_stats(self) -> None:
+    def _compute_stats(self) -> None:   #更新规划数据
         """Update statistics of the plan."""
         gdf = self._gdf[self._gdf['existence'] == True]
+        #遍历所有存在的土地使用类型，并计算每种类型的面积、面积占社区区域的比例以及该类型地块的数量
         for land_use in city_config.LAND_USE_ID:
             area = gdf[gdf['type'] == land_use].area.sum() * self._cell_area
             self._plan_area[land_use] = area
             self._plan_ratio[land_use] = area / self._community_area
             self._plan_count[land_use] = len(gdf[gdf['type'] == land_use])
 
-    def _update_stats(self, land_use_type: int, land_use_area: float) -> None:
+    def _update_stats(self, land_use_type: int, land_use_area: float) -> None:  #更新给定新土地使用类型的规划统计数据
         """Update statistics of the plan given new land_use.
 
         Args:
             land_use_type: land use type of the new land use.
             land_use_area: area of the new land use.
         """
+        #接受土地使用类型 land_use_type 和新土地使用的面积 land_use_area 作为参数
+        #方法增加相应土地使用类型的计数器，更新该类型的总面积，并重新计算该类型占社区总面积的比例。
+        #同时，它会从可行土地使用类型的总面积中减去新土地使用的面积，并更新可行土地使用的比例。
         self._plan_count[land_use_type] += 1
 
         self._plan_area[land_use_type] += land_use_area
@@ -224,19 +237,21 @@ class PlanClient(object):
     def fill_leftover(self) -> None:
         """Fill leftover space."""
         self._gdf.loc[(self._gdf['type'] == city_config.FEASIBLE) & (self._gdf['existence'] == True),
-                      'type'] = city_config.GREEN_S
+                      'type'] = city_config.GREEN_S  #把畸零地块设置为绿地
 
-    def snapshot(self):
+    def snapshot(self):   # 创建当前地理数据框架（_gdf）的快照。这通常用于保存当前状态，以便可以在需要时恢复
         """Snapshot the gdf."""
         snapshot = copy.deepcopy(self._gdf)
         return snapshot
 
-    def build_all_road(self):
+    def build_all_road(self):   #将所有标记为边界（city_config.BOUNDARY）且存在的地块的类型更改为道路
         """Build all road"""
         self._gdf.loc[(self._gdf['type'] == city_config.BOUNDARY) & (self._gdf['existence'] == True),
                       'type'] = city_config.ROAD
 
-    def is_land_use_done(self) -> bool:
+    #检查土地使用规划是否完成。它通过比较实际的土地使用比例（_plan_ratio）和所需的土地使用比例（_required_plan_ratio），
+    #以及土地使用类型的计数（_plan_count）和所需的计数（_required_plan_count）来确定规划是否满足所有条件。
+    def is_land_use_done(self) -> bool:    
         """Check if the land_use planning is done."""
         ratio_satisfication = (self._plan_ratio - self._required_plan_ratio >= -self.EPSILON)[self._plan_order].all()
         count_satisfication = (self._plan_count >= self._required_plan_count)[self._plan_order].all()
@@ -262,6 +277,7 @@ class PlanClient(object):
         self._current_graph = graph
         return gdf, graph
 
+    #转译规划法规
     def _filter_block_by_rule(self,
                               gdf: GeoDataFrame, feasible_blocks_id: np.ndarray, land_use_type: int) -> np.ndarray:
         """Filter feasible blocks by rule.
@@ -274,19 +290,24 @@ class PlanClient(object):
         Returns:
             filtered_blocks_id: filtered blocks.
         """
+        # 如果土地使用类型是学校（city_config.SCHOOL），方法会找出所有类型为大型医院（city_config.HOSPITAL_L）的地块，
+        # 并获取与这些医院相交的地块的ID。然后，它会从可行地块ID中排除这些靠近大型医院的地块。                          
         if land_use_type == city_config.SCHOOL:
             hospital_l = gdf[gdf['type'] == city_config.HOSPITAL_L].unary_union
             near_hospital_l = gdf[(gdf.geom_type == 'Polygon') & (gdf.intersects(hospital_l))].index.to_numpy()
             filtered_blocks_id = np.setdiff1d(feasible_blocks_id, near_hospital_l)
+        #如果土地使用类型是小型医院（city_config.HOSPITAL_S），方法会找出所有类型为学校、大型医院或小型医院的地块，
+        #并获取与这些地块相交的地块的ID。然后，它会从可行地块ID中排除这些靠近学校或医院的地块                          
         elif land_use_type == city_config.HOSPITAL_S:
             school = gdf[(gdf['type'] == city_config.SCHOOL) | (gdf['type'] == city_config.HOSPITAL_L) | (gdf['type'] == city_config.HOSPITAL_S)].unary_union
             near_school = gdf[(gdf.geom_type == 'Polygon') & (gdf.intersects(school))].index.to_numpy()
             filtered_blocks_id = np.setdiff1d(feasible_blocks_id, near_school)
+        #如果土地使用类型不是学校或小型医院，方法将不会过滤任何地块，
         else:
             filtered_blocks_id = feasible_blocks_id
         return filtered_blocks_id
 
-    def _get_graph_edge_mask(self, land_use_type: int) -> np.ndarray:
+    def _get_graph_edge_mask(self, land_use_type: int) -> np.ndarray:  #选择一条边进行土地利用规划
         """Return the edge mask of the graph.
 
         Args:
@@ -295,20 +316,21 @@ class PlanClient(object):
         Returns:
             edge_mask: edge mask of the graph.
         """
-        gdf, graph = self._get_current_gdf_and_graph()
-        current_graph_edges = np.array(graph.edges)
-        current_graph_nodes_id = gdf.index.to_numpy()
+        gdf, graph = self._get_current_gdf_and_graph() # 调用 _get_current_gdf_and_graph 方法获取当前的地理数据框架（GDF）和图（Graph）。
+        current_graph_edges = np.array(graph.edges)  # 从图中提取所有边缘，并将它们转换为NumPy数组
+        current_graph_nodes_id = gdf.index.to_numpy()  # 获取GDF中所有节点的索引，并将这些索引与边缘数组相匹配，创建一个包含边缘和对应节点ID的数组
         self._current_graph_edges_with_id = current_graph_nodes_id[current_graph_edges]
 
+        #筛选出符合以下条件的地块ID：
         feasible_blocks_id = gdf[
-            (gdf['type'] == city_config.FEASIBLE) &
-            (gdf.area * self._cell_area >= self._required_min_area[land_use_type])].index.to_numpy()
-        intersections_id = gdf[gdf.geom_type == 'Point'].index.to_numpy()
+            (gdf['type'] == city_config.FEASIBLE) & #地块类型为可行（city_config.FEASIBLE）
+            (gdf.area * self._cell_area >= self._required_min_area[land_use_type])].index.to_numpy()  #地块面积乘以单元格面积大于或等于给定土地使用类型所需的最小面积。
+        intersections_id = gdf[gdf.geom_type == 'Point'].index.to_numpy()   # 获取所有几何类型为点（即交叉点）的地块ID
 
-        if self._rule_constraints:
+        if self._rule_constraints:  #如果有相应的规则约束，则用约束规则进一步筛选可用的地块ID
             feasible_blocks_id = self._filter_block_by_rule(gdf, feasible_blocks_id, land_use_type)
 
-        edge_mask = np.logical_or(
+        edge_mask = np.logical_or( #创建一个逻辑掩码 edge_mask，该掩码标识出那些连接可行地块和交叉点的边缘
             np.logical_and(
                 np.isin(self._current_graph_edges_with_id[:, 0], feasible_blocks_id),
                 np.isin(self._current_graph_edges_with_id[:, 1], intersections_id)
@@ -319,21 +341,28 @@ class PlanClient(object):
             )
         )
 
-        return edge_mask
+        return edge_mask  # 返回这个逻辑掩码 edge_mask
 
-    def get_current_land_use_and_mask(self) -> Tuple[Dict, np.ndarray]:
+    def get_current_land_use_and_mask(self) -> Tuple[Dict, np.ndarray]:  #获取当前地块的土地使用类型和掩码
         """Return the current land use and mask.
 
         Returns:
             land_use: current land use.
             mask: current mask.
         """
-        land_use = dict()
-        remaining_plan_area = (self._required_plan_area - self._plan_area)[self._plan_order]
-        remaining_plan_count = (self._required_plan_count - self._plan_count)[self._plan_order]
-        land_use_type = self._plan_order[np.logical_or(remaining_plan_area > self.EPSILON, remaining_plan_count > 0)][0]
+        land_use = dict()  #创建一个空字典 land_use 来存储土地使用信息
+        ###对于每种土地利用类型，计算剩余的规划面积和剩余的规划数量，这两个值是根据所需的规划面积和数量减去已规划的面积和数量得到的
+        remaining_plan_area = (self._required_plan_area - self._plan_area)[self._plan_order] #计算剩余的规划面积
+        remaining_plan_count = (self._required_plan_count - self._plan_count)[self._plan_order]  #计算剩余的规划数量
+        ###根据剩余的规划面积和规划数量确定土地利用类型
+        #代码会检查哪些土地使用类型的剩余规划面积或数量大于一个非常小的正数 (self.EPSILON)。这个正数用来处理浮点数的精度问题，
+        #确保即使是非常小的剩余值也能被识别为有效的需求。系统会检查哪些类型的剩余规划面积或数量大于一个非常小的正数（self.EPSILON），
+        #这意味着这些类型还没有达到规划目标。系统会从满足上述条件的类型中选择第一个类型作为 land_use_type。
+        land_use_type = self._plan_order[np.logical_or(remaining_plan_area > self.EPSILON, remaining_plan_count > 0)][0]  
         land_use['type'] = land_use_type
         mask = self._get_graph_edge_mask(land_use_type)
+        #在 land_use 字典中设置土地使用类型和其他相关属性，如坐标、面积、长度、宽度、高度以及几何特征
+        #（矩形度 rect、等效矩形指数 eqi、正方形紧凑度 sc）。
         land_use['x'] = 0.5
         land_use['y'] = 0.5
         land_use['area'] = self._required_max_area[land_use_type]
@@ -345,16 +374,17 @@ class PlanClient(object):
         land_use['sc'] = 1.0
         return land_use, mask
 
-    def get_current_road_mask(self) -> np.ndarray:
+    def get_current_road_mask(self) -> np.ndarray:   #根据类型为boundary的边缘识别出哪些边缘属于当前现有道路
         """Return the current road mask.
 
         Returns:
             mask: current road mask.
         """
-        gdf, graph = self._get_current_gdf_and_graph()
-        self._current_graph_nodes_id = current_graph_nodes_id = gdf.index.to_numpy()
-        boundary_id = gdf[gdf['type'] == city_config.BOUNDARY].index.to_numpy()
-        mask = np.isin(current_graph_nodes_id, boundary_id)
+        gdf, graph = self._get_current_gdf_and_graph()  #调用 _get_current_gdf_and_graph 方法来获取当前的地理数据框架（GDF）和图（Graph）。
+        self._current_graph_nodes_id = current_graph_nodes_id = gdf.index.to_numpy()  #从GDF中获取所有节点的索引，并将其存储在 self._current_graph_nodes_id 中
+        boundary_id = gdf[gdf['type'] == city_config.BOUNDARY].index.to_numpy()  #找出所有类型为边界（city_config.BOUNDARY）的地块的索引，这些通常代表道路的边缘或边界
+        mask = np.isin(current_graph_nodes_id, boundary_id)  #使用 np.isin 函数创建一个掩码 mask，该掩码标识出哪些节点是边界节点
+
 
         return mask
 
