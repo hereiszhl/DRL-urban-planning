@@ -817,10 +817,10 @@ class PlanClient(object):
         Returns:
             True if the road is successfully built, False otherwise.
         """
-        chosen_boundary = self._get_chosen_boundary(action)
-        self._gdf.loc[chosen_boundary, 'type'] = city_config.ROAD
+        chosen_boundary = self._get_chosen_boundary(action) # 调用 _get_chosen_boundary 方法来获取选定的边界
+        self._gdf.loc[chosen_boundary, 'type'] = city_config.ROAD # 将该边界的类型更改为道路
 
-    def get_requirements(self) -> Tuple[np.ndarray, np.ndarray]:
+    def get_requirements(self) -> Tuple[np.ndarray, np.ndarray]:  #获取道路规划的要求，包括土地使用比例和数量
         """Get the planning requirements.
 
         Returns:
@@ -828,7 +828,7 @@ class PlanClient(object):
         """
         return self._required_plan_ratio, self._required_plan_count
 
-    def get_plan_ratio_and_count(self) -> Tuple[np.ndarray, np.ndarray]:
+    def get_plan_ratio_and_count(self) -> Tuple[np.ndarray, np.ndarray]:  #获取当前场地的道路规划的信息，包括当前道路规划的土地使用比例和数量
         """Get the planning ratio and count.
 
         Returns:
@@ -839,49 +839,60 @@ class PlanClient(object):
     @staticmethod
     def _get_road_boundary_graph(gdf) -> nx.MultiGraph:
         """Return the road and boundary graph."""
+        # 筛选出类型为道路（city_config.ROAD）或边界（city_config.BOUNDARY）的 GeoDataFrame 记录
         road_boundary_gdf = gdf[(gdf['type'] == city_config.ROAD) | (gdf['type'] == city_config.BOUNDARY)]
+        # 使用 momepy.gdf_to_nx 函数将这些记录转换为 NetworkX 图形。这个图形可以用于进一步的分析和规划
         road_boundary_graph = momepy.gdf_to_nx(road_boundary_gdf.reset_index(), approach='primal', length='length')
         return road_boundary_graph
 
     @staticmethod
-    def _get_domain_features(gdf: GeoDataFrame) -> np.ndarray:
+    def _get_domain_features(gdf: GeoDataFrame) -> np.ndarray: #从地理数据集GeoDataFrame中提取特征
         """Get the domain knowledge features.
 
         Args:
-            gdf: the GeoDataFrame.
+            gdf: the GeoDataFrame.  # 接受一个 GeoDataFrame 作为参数，并返回一个 NumPy 数组
 
         Returns:
             The domain knowledge features.
         """
-        domain_gdf = gdf[['rect', 'eqi', 'sc']].fillna(0.5)
+
+        #提取了 ‘rect’（矩形）、‘eqi’（环境质量指数）、‘sc’（社会连通性）这三个特征，并将缺失值填充为 0.5。
+        domain_gdf = gdf[['rect', 'eqi', 'sc']].fillna(0.5) #暂时赋值为0.5
         domain_features = domain_gdf.to_numpy()
         return domain_features
 
-    def get_graph_features(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray,
+    def get_graph_features(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray,  ##从地理数据集GeoDataFrame中提取特征
                                           np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Get the graph features.
+        """Get the graph features.  #返回一个包含多个图形特征的元组
 
         Returns:
             A tuple of the graph features which contains the followings.
-            1. node type: the type of the nodes.
-            2. node coordinates: the x-y coordinate of the nodes.
-            3. node area: the area of the nodes.
-            4. node length: the length of the nodes.
-            5. node width: the width of the nodes.
-            6. node height: the height of the nodes.
-            7. edges: the adjacency list.
+            1. node type: the type of the nodes.节点类型（node type）
+            2. node coordinates: the x-y coordinate of the nodes.节点坐标（node coordinates）
+            3. node area: the area of the nodes.节点面积（node area）
+            4. node length: the length of the nodes. 节点长度（node length）
+            5. node width: the width of the nodes.节点宽度（node width）
+            6. node height: the height of the nodes.节点高度（node height）
+            7. edges: the adjacency list.边缘列表（edges）
         """
+         #这些特征是通过处理 self._current_gdf（当前的 GeoDataFrame）和 self._current_graph（当前的图形结构）来获得的。                                   
         gdf = self._current_gdf
         graph = self._current_graph
-        node_type = gdf['type'].to_numpy(dtype=np.int32)
+        #节点类型（node type）：使用 gdf['type'].to_numpy(dtype=np.int32) 将节点类型转换为整数类型的 NumPy 数组。                                      
+        node_type = gdf['type'].to_numpy(dtype=np.int32) 
+        #节点坐标（node coordinates）：计算每个节点的 x 和 y 坐标，并将其标准化到网格大小，使用 np.column_stack 将它们组合成一个数组。                                      
         node_coordinates = np.column_stack((gdf.centroid.x/self._grid_cols, gdf.centroid.y/self._grid_rows))
+        #节点面积（node area）：计算每个节点的面积，并将其乘以单元格面积 self._cell_area 转换为实际面积。                                      
         node_area = gdf.area.to_numpy(dtype=np.float32)*self._cell_area
+        #节点长度（node length）：计算每个节点的长度，并将其乘以单元格边长 self._cell_edge_length 转换为实际长度。                                      
         node_length = gdf.length.to_numpy(dtype=np.float32)*self._cell_edge_length
+        #节点宽度（node width）和 节点高度（node height）：使用 gdf.bounds 计算每个节点的宽度和高度，并进行相应的单位转换。                                      
         bounds = gdf.bounds
         node_width = (bounds['maxx'] - bounds['minx']).to_numpy(dtype=np.float32)*self._cell_edge_length
         node_height = (bounds['maxy'] - bounds['miny']).to_numpy(dtype=np.float32)*self._cell_edge_length
+        #节点领域特征（node domain）：调用 _get_domain_features 方法获取节点的领域特征。                                      
         node_domain = self._get_domain_features(gdf)
-
+        #边缘列表（edges）：使用 np.array(graph.edges) 获取图形中所有边缘的列表。
         edges = np.array(graph.edges)
 
         return node_type, node_coordinates, node_area, node_length, node_width, node_height, node_domain, edges
