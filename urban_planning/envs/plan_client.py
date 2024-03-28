@@ -897,13 +897,13 @@ class PlanClient(object):
 
         return node_type, node_coordinates, node_area, node_length, node_width, node_height, node_domain, edges
 
-    def _get_road_graph(self) -> nx.MultiGraph:
+    def _get_road_graph(self) -> nx.MultiGraph: #从地理数据库中获取道路信息，将其转换为graph图
         """Return the road graph."""
         road_gdf = self._gdf[(self._gdf['type'] == city_config.ROAD) & (self._gdf['existence'] == True)]
         road_graph = momepy.gdf_to_nx(road_gdf, approach='primal', length='length', multigraph=False)
         return road_graph
 
-    def get_road_network_reward(self) -> Tuple[float, Dict]:
+    def get_road_network_reward(self) -> Tuple[float, Dict]: #计算道路网络的奖励值
         """Get the road network reward.
 
         Returns:
@@ -912,22 +912,22 @@ class PlanClient(object):
         gdf = self._gdf[self._gdf['existence'] == True]
         road_graph = self._get_road_graph()
 
-        # connectivity of road network
+        # connectivity of road network 基于道路连通性进行奖励，连通性越高奖励越高
         connectivity_reward = 1.0/nx.number_connected_components(road_graph)
 
-        # density of road network
+        # density of road network 基于路网密度进行奖励，密度越高奖励越高
         road_length = gdf[gdf['type'] == city_config.ROAD].length
         road_total_length_km = road_length.sum()*self._cell_edge_length/1000
         community_area_km = self._community_area/1000/1000
         road_network_density = road_total_length_km/community_area_km
         density_reward = road_network_density/10.0
 
-        # dead end penalty
+        # dead end penalty 发现一个断头路就惩罚一分
         degree_sequence = np.array([d for n, d in road_graph.degree()], dtype=np.int32)
         num_dead_end = np.count_nonzero(degree_sequence == 1)
         dead_end_penalty = 1.0/(num_dead_end + 1)
 
-        # penalty for short/long road
+        # penalty for short/long road 有一条长度小于100的道路就惩罚一分，有一条长度大于600的道路就惩罚一分
         road_gdf = gdf[gdf['type'] == city_config.ROAD]
         road_gdf = momepy.remove_false_nodes(road_gdf)
         road_length = road_gdf.length
@@ -936,7 +936,7 @@ class PlanClient(object):
         num_long_roads = len(road_length[road_length*self._cell_edge_length > 600])
         long_road_penalty = 1.0/(num_long_roads + 1)
 
-        # penalty for road distance
+        # penalty for road distance 发现一个大街区（有一边长度超过800），就惩罚一分。
         road_gdf = gdf[gdf['type'] == city_config.ROAD]
         blocks = polygonize(road_gdf['geometry'])
         block_bounds = [block.bounds for block in blocks]
@@ -948,9 +948,9 @@ class PlanClient(object):
         road_distance_penalty = 1.0/(num_large_blocks + 1)
 
         road_network_reward = 1.0 * connectivity_reward + 1.0 * density_reward + 1.0 * dead_end_penalty + \
-            1.0 * short_road_penalty + 1.0 * long_road_penalty + 1.0 * road_distance_penalty
-        road_network_reward = road_network_reward/6.0
-        info = {'connectivity_reward': connectivity_reward,
+            1.0 * short_road_penalty + 1.0 * long_road_penalty + 1.0 * road_distance_penalty # 计算道路网络奖励的各个组成部分
+        road_network_reward = road_network_reward/6.0 # 将总奖励值平均化
+        info = {'connectivity_reward': connectivity_reward, # 创建包含所有评价指标的字典
                 'density_reward': density_reward,
                 'dead_end_penalty': dead_end_penalty,
                 'short_road_penalty': short_road_penalty,
@@ -959,63 +959,75 @@ class PlanClient(object):
 
         return road_network_reward, info
 
-    def get_life_circle_reward(self, weight_by_area: bool = False) -> Tuple[float, Dict]:
+    def get_life_circle_reward(self, weight_by_area: bool = False) -> Tuple[float, Dict]:  
+        #评估居民区与公共服务设施之间的距离和分布情况得到生活圈奖励值
+
         """Get the reward of the life circle.
 
         Returns:
             The reward of the life circle.
         """
-        gdf = self._gdf[self._gdf['existence'] == True]
-        residential_centroid = gdf[gdf['type'] == city_config.RESIDENTIAL].centroid
-        residential_area = gdf[gdf['type'] == city_config.RESIDENTIAL].area.to_numpy()
-        num_public_service = 0
-        minimum_public_service_distances = []
-        public_service_pairwise_distances = []
-        public_service_area = 0.0
-        for public_service in city_config.PUBLIC_SERVICES_ID:
+        gdf = self._gdf[self._gdf['existence'] == True] #从数据库中选出存在土地利用的区块
+        residential_centroid = gdf[gdf['type'] == city_config.RESIDENTIAL].centroid #计算居住区的中心点与居住区面积
+        residential_area = gdf[gdf['type'] == city_config.RESIDENTIAL].area.to_numpy() #初始化最小公服距离与公服之间的距离
+        num_public_service = 0 #初始化公服数量
+        minimum_public_service_distances = [] # 最小公共服务距离
+        public_service_pairwise_distances = [] # 公共服务之间的距离
+        public_service_area = 0.0 #初始化公服的面积
+        for public_service in city_config.PUBLIC_SERVICES_ID: # 遍历 city_config.PUBLIC_SERVICES_ID 中定义的所有公共服务类型
             if not isinstance(public_service, tuple):
-                public_service_gdf = gdf[gdf['type'] == public_service]
+                public_service_gdf = gdf[gdf['type'] == public_service] #如果不是元组（说明只存在一种数据，即存在一种公服设施），会直接选择该公服
             else:
-                public_service_gdf = gdf[gdf['type'].isin(public_service)]
-            public_service_centroid = public_service_gdf.centroid.unary_union
+                public_service_gdf = gdf[gdf['type'].isin(public_service)] #如果是元组（说明包括多种数据，即存在多种类型的公服），则会选择所有类型的公服
+            public_service_centroid = public_service_gdf.centroid.unary_union #同时计算每种公共服务的中心点，并将该区块内所有公服的中心点合并为一个点
 
-            num_same_public_service = len(public_service_gdf)
-            if num_same_public_service > 0:
-                distance = residential_centroid.distance(public_service_centroid).to_numpy()
-                minimum_public_service_distances.append(distance)
-                num_public_service += 1
-                public_service_area += public_service_gdf.area.sum()*self._cell_area
+            num_same_public_service = len(public_service_gdf) #计算同一类型的公共服务设施的数量
+            if num_same_public_service > 0:  # 如果存在至少一个此类公共服务设施
+                distance = residential_centroid.distance(public_service_centroid).to_numpy() #计算居民区中心点到公共服务设施中心点的距离
+                minimum_public_service_distances.append(distance) # 将计算出的距离添加到 minimum_public_service_distances 列表中。
+                num_public_service += 1 # 公共服务数量加一
+                public_service_area += public_service_gdf.area.sum()*self._cell_area # 计算所有公共服务设施的总面积并乘以单元格面积，累加到 public_service_area。
 
-                if num_same_public_service > 1:
+                if num_same_public_service > 1: # 如果存在多于一个同类型的公共服务设施
+                    # 提取所有公共服务设施中心点的x和y坐标
                     public_service_x = public_service_gdf.centroid.x.to_numpy()
                     public_service_y = public_service_gdf.centroid.y.to_numpy()
+                    # 将x和y坐标数组合并为一个二维数组，其中每个公共服务设施的坐标是数组中的一个元素
                     public_service_xy = np.stack([public_service_x, public_service_y], axis=1)
+                    # 计算所有公共服务设施中心点之间的距离
                     pair_distance = cdist(public_service_xy, public_service_xy)
+                    # 计算所有距离的平均值，该值表示多个同类型的公服到居住区的距离
                     average_pair_distance = np.mean(pair_distance[pair_distance > 0])
                     public_service_pairwise_distances.append(average_pair_distance)
 
-        if num_public_service > 0:
-            public_service_distance = np.column_stack(minimum_public_service_distances)
+        if num_public_service > 0: #如果公服数量大于0
+            public_service_distance = np.column_stack(minimum_public_service_distances) # 提取所有公服到居住区中心点的最小值，将他们合成一个数组
+            # 通过乘以单元格边长并与特定距离阈值（例如1000米、500米、300米）比较，计算不同时间范围内可达的公共服务设施的比例。
             life_circle_15min = np.count_nonzero(
                 public_service_distance*self._cell_edge_length <= 1000, axis=1)/num_public_service
             life_circle_10min = np.count_nonzero(
                 public_service_distance*self._cell_edge_length <= 500, axis=1)/num_public_service
             life_circle_5min = np.count_nonzero(
                 public_service_distance*self._cell_edge_length <= 300, axis=1)/num_public_service
+            # 如果 weight_by_area 为 False，则计算10分钟生活圈的平均值作为效率奖励
             if not weight_by_area:
                 efficiency_reward = life_circle_10min.mean()
             else:
                 efficiency_reward = np.average(life_circle_10min, weights=residential_area)
             reference_distance = math.sqrt(self._grid_cols**2 + self._grid_rows**2)
             decentralization_reward = np.array(public_service_pairwise_distances).mean()/reference_distance
+            # 计算公共服务设施面积与社区面积的比例作为奖励
             utility_reward = public_service_area/self._community_area
+            # 将效率奖励与去中心化奖励的5%相加得到总奖励
             reward = efficiency_reward + 0.05 * decentralization_reward
+            # 创建一个包含各种奖励和可达性指标的字典
             info = {'life_circle_15min': life_circle_15min.mean(),
                     'life_circle_10min': life_circle_10min.mean(),
                     'life_circle_5min': life_circle_5min.mean(),
                     'life_circle_10min_area': np.average(life_circle_10min, weights=residential_area),
                     'decentralization_reward': decentralization_reward,
                     'utility': utility_reward}
+            # 计算所有居民在10分钟内可达的公共服务设施的比例，并将这些比例添加到信息字典中
             life_circle_10min_all = np.count_nonzero(
                 public_service_distance*self._cell_edge_length <= 500, axis=0)/public_service_distance.shape[0]
             for index, service_name in enumerate(city_config.PUBLIC_SERVICES):
