@@ -1001,7 +1001,7 @@ class PlanClient(object):
                     public_service_pairwise_distances.append(average_pair_distance)
 
         if num_public_service > 0: #如果公服数量大于0
-            public_service_distance = np.column_stack(minimum_public_service_distances) # 提取所有公服到居住区中心点的最小值，将他们合成一个数组
+            public_service_distance = np.column_stack(minimum_public_service_distances) # 将每个居住区中心点到最近公服的距离合成一个数组
             # 通过乘以单元格边长并与特定距离阈值（例如1000米、500米、300米）比较，计算不同时间范围内可达的公共服务设施的比例。
             life_circle_15min = np.count_nonzero(
                 public_service_distance*self._cell_edge_length <= 1000, axis=1)/num_public_service
@@ -1010,24 +1010,33 @@ class PlanClient(object):
             life_circle_5min = np.count_nonzero(
                 public_service_distance*self._cell_edge_length <= 300, axis=1)/num_public_service
             # 如果 weight_by_area 为 False，则计算10分钟生活圈的平均值作为效率奖励
+            # weight_by_area为False意味着在计算效率奖励时，不会考虑每个居民区域的面积大小。
+            # 换句话说，所有居民区域在计算10分钟生活圈的平均值时被视为同等重要，不会根据它们的面积大小给予不同的权重。
+            # 如果weight_by_area为True，则意味着在计算效率奖励时，会根据居民区域的面积大小进行加权，
+            # 这样可以更准确地反映出大面积居民区域对于生活圈可达性的贡献。
             if not weight_by_area:
                 efficiency_reward = life_circle_10min.mean()
             else:
                 efficiency_reward = np.average(life_circle_10min, weights=residential_area)
+            # 去中心化奖励：计算公服之间的平均距离与参考距离（reference_distance）的比值作为去中心化奖励，确保公服是均匀分布而不是集中分布于某点
+            # reference_distance 是一个参考距离，它是通过计算网格的列数（self._grid_cols）和行数（self._grid_rows）的平方和的平方根得到的。
+            # 这个距离可以看作是网格的对角线长度，代表了网格的最大可能距离。
             reference_distance = math.sqrt(self._grid_cols**2 + self._grid_rows**2)
             decentralization_reward = np.array(public_service_pairwise_distances).mean()/reference_distance
-            # 计算公共服务设施面积与社区面积的比例作为奖励
+            # 公服面积占比奖励：计算公共服务设施面积与社区面积的比例作为奖励
             utility_reward = public_service_area/self._community_area
-            # 将效率奖励与去中心化奖励的5%相加得到总奖励
+            # 总奖励：将效率奖励与去中心化奖励的5%相加得到总奖励
             reward = efficiency_reward + 0.05 * decentralization_reward
             # 创建一个包含各种奖励和可达性指标的字典
-            info = {'life_circle_15min': life_circle_15min.mean(),
-                    'life_circle_10min': life_circle_10min.mean(),
-                    'life_circle_5min': life_circle_5min.mean(),
+            info = {'life_circle_15min': life_circle_15min.mean(),# 表示居民在15分钟内可达的公共服务设施的平均比例
+                    'life_circle_10min': life_circle_10min.mean(),# 表示居民在10分钟内可达的公共服务设施的平均比例
+                    'life_circle_5min': life_circle_5min.mean(),# 表示居民在5分钟内可达的公共服务设施的平均比例
+                     # 'life_circle_10min_area': 表示按居民区域面积加权后，居民在10分钟内可达的公共服务设施的平均比例
                     'life_circle_10min_area': np.average(life_circle_10min, weights=residential_area),
                     'decentralization_reward': decentralization_reward,
                     'utility': utility_reward}
             # 计算所有居民在10分钟内可达的公共服务设施的比例，并将这些比例添加到信息字典中
+            # 可以根据研究侧重点选择5分钟或者15分钟
             life_circle_10min_all = np.count_nonzero(
                 public_service_distance*self._cell_edge_length <= 500, axis=0)/public_service_distance.shape[0]
             for index, service_name in enumerate(city_config.PUBLIC_SERVICES):
@@ -1036,47 +1045,62 @@ class PlanClient(object):
         else:
             return 0.0, dict()
 
-    def get_greenness_reward(self) -> float:
+    def get_greenness_reward(self) -> float: # 计算城市规划中绿化覆盖对居民区的奖励值
         """Get the reward of the greenness.
 
         Returns:
             The reward of the greenness.
         """
-        gdf = self._gdf[self._gdf['existence'] == True]
-        green_id = city_config.GREEN_ID
+        gdf = self._gdf[self._gdf['existence'] == True] # 从数据集中选择数据
+        green_id = city_config.GREEN_ID #从城市配置（city_config）中获取绿色空间类型的标识符列表，并将其赋值给变量green_id。
+        
+        # gdf['type'].isin(green_id)：这部分检查gdf中的每个元素的类型是否包含在green_id列表中。
+        # green_id是预先定义的绿色空间类型的标识符列表，
+        # 例如公园、草地等。#gdf.area*self._cell_area >= city_config.GREEN_AREA_THRESHOLD：这部分
+        # 计算每个元素的面积（gdf.area）乘以单元格面积，（self._cell_area）并检查结果是否大于或等于一个
+        # 预设的阈值（city_config.GREEN_AREA_THRESHOLD）。这个阈值是用来确定一个元素是否足够大，
+        # 以被认为是有效的绿色空间
         green_gdf = gdf[(gdf['type'].isin(green_id)) & (gdf.area*self._cell_area >= city_config.GREEN_AREA_THRESHOLD)]
-        green_cover = green_gdf.buffer(300/self._cell_edge_length).unary_union
-        residential = gdf[gdf['type'] == city_config.RESIDENTIAL].unary_union
-        green_covered_residential = green_cover.intersection(residential)
-        reward = green_covered_residential.area / residential.area
+        green_cover = green_gdf.buffer(300/self._cell_edge_length).unary_union  # 计算绿地300米缓冲区
+        residential = gdf[gdf['type'] == city_config.RESIDENTIAL].unary_union #找到居民区类型的地理元素，并将其合并
+        green_covered_residential = green_cover.intersection(residential) # 计算绿色覆盖区域与居民区域的交集，得到被绿色空间覆盖的居民区域
+        reward = green_covered_residential.area / residential.area # 计算被绿色空间覆盖的居民区域面积与居民区总面积的比例，作为绿化奖励
         return reward
 
-    def get_concept_reward(self) -> Tuple[float, Dict]:
+    def get_concept_reward(self) -> Tuple[float, Dict]: #规划概念奖励
         """Get the reward of the planning concept.
 
         Returns:
             The reward of the concept.
             The information of the concept reward.
         """
-        if len(self._concept) == 0:
+        if len(self._concept) == 0: # 首先检查概念列表 _concept 是否为空。如果为空，则抛出一个值错误
             raise ValueError('The concept list is empty.')
+        #从地理数据框 gdf 中选择存在且几何类型为多边形的元素
         gdf = self._gdf[(self._gdf['existence'] == True) & (self._gdf.geom_type == 'Polygon')]
-        reward = 0.0
-        info = dict()
+        reward = 0.0 # 初始化奖励 reward 为0.0
+        info = dict() # 创建一个空字典 info
+        # 遍历概念列表 _concept，根据概念的类型（'center' 或 'axis'）计算奖励和信息
         for i, concept in enumerate(self._concept):
+            # 如果概念类型是 'center'，调用 _get_center_concept_reward_info 函数计算中心概念的奖励和信息，
+            # 然后将结果累加到 reward 变量，并将信息添加到 info 字典
             if concept['type'] == 'center':
                 center_reward, center_info = self._get_center_concept_reward_info(gdf, concept)
                 reward += center_reward
                 info['{}_center'.format(i)] = center_info
+            # 如果概念类型是 'axis'，调用 _get_axis_concept_reward_info 函数计算轴线概念的奖励和信息，
+            # 同样累加和添加到 reward 和 info
             elif concept['type'] == 'axis':
                 axis_reward, axis_info = self._get_axis_concept_reward_info(gdf, concept)
                 reward += axis_reward
                 info['{}_axis'.format(i)] = axis_info
             else:
                 raise ValueError(f'The concept type {concept["type"]} is not supported.')
+        # 将累加的奖励 reward 除以概念列表的长度，得到平均奖励，并返回这个奖励和信息字典 info
         reward /= len(self._concept)
         return reward, info
 
+   # 计算规划方案中中心概念的奖励值
     def _get_center_concept_reward_info(self, gdf: GeoDataFrame, concept: Dict) -> Tuple[float, Dict]:
         """Get the reward of the center concept.
 
@@ -1088,15 +1112,24 @@ class PlanClient(object):
             The reward of the center concept.
             The information of the center concept.
         """
+        # 从 concept 字典中获取中心点的几何信息。这个中心点代表了城市规划中心概念的地理位置
         center = concept['geometry']
+        # 距离阈值 (distance_threshold): 这是一个数值，表示从中心点向外延伸的距离，在这个距离内的土地使用被认为与城市中心概念相关
         distance_threshold = concept['distance']
+        # 中心圆形区域 (center_circle): 使用中心点的几何信息和距离阈值创建一个圆形区域
         center_circle = center.buffer(distance_threshold/self._cell_edge_length)
+        # 从地理数据框 gdf 中筛选出与中心圆形区域相交的元素。这些元素代表了在城市中心概念范围内的土地使用
         center_gdf = gdf[gdf.intersects(center_circle)]
+        # 这是一个列表，包含了与城市中心概念相关的土地使用类型，如商业、住宅等
         related_land_use = concept['land_use']
+        # 从 center_gdf 中筛选出类型在 related_land_use 列表中的元素。这些元素代表了与城市中心概念直接相关的土地使用
         center_related_gdf = center_gdf[center_gdf['type'].isin(related_land_use)]
+        # 计算与城市中心概念相关的土地使用元素的数量与中心圆形区域内所有土地使用元素数量的比例。
+        # 这个比例作为奖励值 (reward)，反映了城市中心概念的实现程度。
         center_related_land_use_ratio = len(center_related_gdf)/len(center_gdf)
         reward = center_related_land_use_ratio
 
+        # 创建一个包含中心概念相关信息的字典，如中心点坐标、距离阈值、相关土地使用类型和比例
         info = dict()
         info['center'] = (center.x, center.y)
         info['distance_threshold'] = distance_threshold
@@ -1104,6 +1137,8 @@ class PlanClient(object):
         info['related_land_use_ratio'] = center_related_land_use_ratio
         return reward, info
 
+    
+    # 为城市规划中的轴线概念计算奖励值
     def _get_axis_concept_reward_info(self, gdf: GeoDataFrame, concept: Dict) -> Tuple[float, Dict]:
         """Get the reward of the axis concept.
 
@@ -1115,18 +1150,35 @@ class PlanClient(object):
             The reward of the axis concept.
             The information of the axis concept.
         """
-        axis = concept['geometry']
-        distance_threshold = concept['distance']
+        axis = concept['geometry'] # 从 concept 字典中提取轴线的几何信息
+        distance_threshold = concept['distance'] # 从 concept 字典中获取轴线概念的距离阈值
+        # 使用 axis.buffer 方法创建一个围绕轴线的带状区域，其宽度由距离阈值决定
         axis_band = axis.buffer(distance_threshold/self._cell_edge_length, cap_style=2, join_style=2)
+        # 从地理数据框 gdf 中筛选出与轴线带区域相交的元素
         axis_gdf = gdf[gdf.intersects(axis_band)]
+        # 从 concept 字典中获取与轴线概念相关的土地使用类型，如商业、住宅等。
         related_land_use = concept['land_use']
+        # 进一步筛选出类型符合 related_land_use 的元素，代表了与城市中心概念直接相关的土地使用
         axis_related_gdf = axis_gdf[axis_gdf['type'].isin(related_land_use)]
-        if len(axis_related_gdf) > 0:
+        if len(axis_related_gdf) > 0: # 如果有相关土地使用元素存在，计算四个数据
+            
+            # 相关土地使用元素与轴线带区域内所有元素的数量比
             axis_related_land_use_ratio = len(axis_related_gdf)/len(axis_gdf)
+            
+            # 不同类型的相关土地使用元素的数量与预期类型数量的比
             axis_related_land_use_type = axis_related_gdf['type'].nunique()/len(related_land_use)
+
+            # 计算与城市规划轴线概念相关的土地使用元素在轴线上的分布范围
+            # 这个变量存储了每个相关土地使用元素的质心在轴线上的投影位置。这里使用了 normalized=True 参数，
+            # 意味着投影位置是以轴线长度为单位的相对值，范围在0到1之间。
             axis_related_land_use_project = axis_related_gdf.centroid.apply(lambda x: axis.project(x, normalized=True))
+            # 计算了所有投影位置的最大值和最小值之差，得到的结果表示相关土地使用元素在轴线上的投影范围。
+            # 这个范围可以用来评估相关土地使用元素在轴线上的分布是否集中或分散
             axis_related_land_use_expand = axis_related_land_use_project.max() - axis_related_land_use_project.min()
+            # 奖励值 (reward) 是上述三个比例的平均值
             reward = (axis_related_land_use_ratio + axis_related_land_use_type + axis_related_land_use_expand)/3
+            
+            # 创建信息字典 (info): 包含轴线坐标、距离阈值、相关土地使用类型及上述计算的比例
             info = dict()
             info['axis'] = axis.coords[:]
             info['distance_threshold'] = distance_threshold
