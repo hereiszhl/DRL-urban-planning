@@ -16,33 +16,33 @@ from urban_planning.envs import city_config
 from urban_planning.utils.config import Config
 
 
-class InfeasibleActionError(ValueError):
+class InfeasibleActionError(ValueError): # 定义了一个名为 InfeasibleActionError 的异常类,继承系统自内置的 ValueError 类。
     """An infeasible action were passed to the env."""
 
-    def __init__(self, action, mask):
+    def __init__(self, action, mask): #构造函数 __init__(self, action, mask)
         """Initialize an infeasible action error.
 
         Args:
-          action: Infeasible action that was performed.
+          action: Infeasible action that was performed. # 表示执行的不可行操作
           mask: The mask associated with the current observation. mask[action] is
-            `0` for infeasible actions.
+            `0` for infeasible actions. #与当前观测值相关联的掩码。如果 mask[action] 为 0，则表示该操作不可行
         """
-        super().__init__(self, action, mask)
+        super().__init__(self, action, mask) # super() 是一个特殊的内置函数，用于获取父类的引用
         self.action = action
         self.mask = mask
 
-    def __str__(self):
+    def __str__(self): # 当报错时会返回报错信息
         return 'Infeasible action ({}) when the mask is ({})'.format(self.action, self.mask)
 
 
-def reward_info_function(
+def reward_info_function( # 定义了一个名为 reward_info_function 的函数，用于计算强化学习（RL）中的奖励和相关信息
     plc: PlanClient,
-    name: Text,
-    road_network_weight: float = 1.0,
-    life_circle_weight: float = 1.0,
-    greenness_weight: float = 1.0,
-    concept_weight: float = 0.0,
-    weight_by_area: bool = False) -> Tuple[float, Dict]:
+    name: Text, # 奖励名称
+    road_network_weight: float = 1.0, # 道路网络奖励权重
+    life_circle_weight: float = 1.0, # 15分钟生活圈奖励权重
+    greenness_weight: float = 1.0, # 绿地覆盖率奖励权重
+    concept_weight: float = 0.0, # 规划概念奖励权重
+    weight_by_area: bool = False) -> Tuple[float, Dict]: # 是否按住宅区域的面积加权生活圈奖励
     """Returns the RL reward and info.
 
     Args:
@@ -55,12 +55,13 @@ def reward_info_function(
         weight_by_area: Whether to weight the life circle reward by the area of residential zones.
 
     Returns:
-        The RL reward.
+        The RL reward. # 计算得到的强化学习奖励
         Info dictionary.
     """
-    proxy_reward = CityEnv.INTERMEDIATE_REWARD
+    proxy_reward = CityEnv.INTERMEDIATE_REWARD # 计算RL奖励时以中间奖励作为初始值。
 
-    if name == 'intermediate':
+    # 根据不同的奖励类型计算 RL 奖励和相关信息
+    if name == 'intermediate': # 如果name等于intermediate，则代理奖励proxy_reward权重为以下值
         return proxy_reward, {
             'road_network': -1.0,
             'life_circle': -1.0,
@@ -70,10 +71,13 @@ def reward_info_function(
     elif name == 'road':
         proxy_reward = 0.0
         road_network = -1.0
-        road_network_info = dict()
+        road_network_info = dict() #创建一个空的 road_network_info 字典
+       
+        # 如果 road_network_weight 大于 0.0，则调用 plc.get_road_network_reward() 获取道路网络奖励，并将其加权添加到 proxy_reward 中
         if road_network_weight > 0.0:
             road_network, road_network_info = plc.get_road_network_reward()
             proxy_reward += road_network_weight * road_network
+        # 返回 proxy_reward 作为 RL 奖励
         return proxy_reward, {
             'road_network': road_network,
             'life_circle': -1.0,
