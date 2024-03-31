@@ -516,31 +516,33 @@ class CityEnv: # 定义了一个名为 CityEnv 的类，用于模拟城市规划
 
                     # 计算总的道路步数
                     self._compute_total_road_steps()
-        elif self._stage == 'road':
-            action = int(action[1])
-            self._action_history.append(('road', action))
+        elif self._stage == 'road': # 如果当前是道路规划阶段
+            action = int(action[1]) # 将 action 转换为整数
+            self._action_history.append(('road', action)) # 将 ('road', action) 添加到 _action_history 中
+            # 检查 _current_road_mask 中的索引 action 是否为零。如果是零，它会引发一个 InfeasibleActionError，表示该操作无法执行。
             if self._current_road_mask[action] == 0:
                 raise InfeasibleActionError(action, self._current_road_mask)
 
-            try:
+            try: # 尝试构建道路
                 self.build_road(action)
             except ValueError as err:
-                logger.error(err)
+                logger.error(err) # 如果出现 ValueError，则记录错误并返回失败步骤。
                 return self.failure_step('Actions took before failing to place land use', logger)
             except Exception as err:
-                logger.error(err)
+                logger.error(err) # 如果出现其他异常，也记录错误并返回失败步骤
                 return self.failure_step('Actions took before failing to place land use', logger)
 
-            self._road_steps += 1
-            if self._road_steps >= self._total_road_steps:
+            self._road_steps += 1 # 增加 _road_steps 的计数
+            if self._road_steps >= self._total_road_steps: # 如果 _road_steps 大于等于 _total_road_steps，则过渡到下一个阶段
                 self.transition_stage()
-            reward, info = self.get_reward_info()
+            reward, info = self.get_reward_info() # 获取奖励和信息（reward, info = self.get_reward_info()）
             self._current_land_use, self._current_land_use_mask = self._get_land_use_and_mask()
             self._current_road_mask = self._get_road_mask()
-        else:
+        else: # # 如果不是道路规划阶段，引发一个 ValueError，表示无法在该阶段执行步骤
             raise ValueError('Cannot step in stage: {}.'.format(self._stage))
 
-        if self._done:
+        # 如果 _done 为真，它会执行一些其他操作，例如更新奖励、构建所有道路等。如果是评估模式，则还会获取一些其他信息。
+        if self._done: 
             info['land_use_reward'] = self._cached_land_use_reward
             if not self.cfg.skip_road:
                 info['life_circle'] = self._cached_life_circle_reward
@@ -557,7 +559,7 @@ class CityEnv: # 定义了一个名为 CityEnv 的类，用于模拟城市规划
 
         return self._get_obs(), reward, self._done, info
 
-    def reset(self):
+    def reset(self): # 重置当前环境下的所有状态
         """
         Resets the state of the environment and returns an initial observation.
 
@@ -576,7 +578,7 @@ class CityEnv: # 定义了一个名为 CityEnv 的类，用于模拟城市规划
         return self._get_obs()
 
     @staticmethod
-    def filter_land_use_road(gdf: GeoDataFrame) -> GeoDataFrame:
+    def filter_land_use_road(gdf: GeoDataFrame) -> GeoDataFrame: # 从给定的地理数据框中过滤出土地用途和道路特征
         """
         Filter out the land use and road features.
         """
@@ -587,7 +589,7 @@ class CityEnv: # 定义了一个名为 CityEnv 的类，用于模拟城市规划
         return land_use_road_gdf
 
     @staticmethod
-    def filter_road_boundary(gdf: GeoDataFrame) -> GeoDataFrame:
+    def filter_road_boundary(gdf: GeoDataFrame) -> GeoDataFrame: # 从给定的地理数据框中过滤出道路和边界特征
         """
         Filter out the road and boundary features.
         """
@@ -597,7 +599,7 @@ class CityEnv: # 定义了一个名为 CityEnv 的类，用于模拟城市规划
         return road_boundary_gdf
 
     @staticmethod
-    def _add_legend_to_gdf(gdf: GeoDataFrame) -> GeoDataFrame:
+    def _add_legend_to_gdf(gdf: GeoDataFrame) -> GeoDataFrame: # 向给定的地理数据框（GeoDataFrame）添加图例信息
         """
         Add legend to the gdf.
         """
@@ -605,7 +607,7 @@ class CityEnv: # 定义了一个名为 CityEnv 的类，用于模拟城市规划
         return gdf
 
     @staticmethod
-    def plot_and_save_gdf(gdf: GeoDataFrame, cmap: ListedColormap,
+    def plot_and_save_gdf(gdf: GeoDataFrame, cmap: ListedColormap, # 绘制并保存给定的地理数据框（GeoDataFrame）
                           save_fig: bool = False, path: Text = None, legend: bool = False,
                           ticks: bool = True, bbox: bool = True) -> None:
         """
@@ -624,12 +626,20 @@ class CityEnv: # 定义了一个名为 CityEnv 的类，用于模拟城市规划
             plt.yticks([])
         if not bbox:
             plt.axis('off')
-        if save_fig:
+        if save_fig: # 如果 save_fig 标志设置为 True，则会将绘图保存为 SVG 文件
             assert path is not None
-            plt.savefig(path, format='svg', transparent=True)
+            plt.savefig(path, format='svg', transparent=True) # 把path替换为保存路径
         plt.show()
         plt.close()
 
+    # 接受以下参数：
+    # gdf：一个 GeoDataFrame 对象，表示要绘制的地理数据。
+    # cmap：一个颜色映射（colormap），用于设置绘图的颜色。
+    # save_fig：一个布尔值，表示是否保存绘图。
+    # path：一个字符串，表示保存绘图的路径（如果 save_fig 为真）。
+    # legend：一个布尔值，表示是否显示图例。
+    # ticks：一个布尔值，表示是否显示坐标轴刻度。
+    # bbox：一个布尔值，表示是否显示图形边界框。
     def visualize(self, save_fig: bool = False, path: Text = None, legend: bool = True,
                   ticks: bool = True, bbox: bool = True) -> None:
         """
@@ -642,8 +652,14 @@ class CityEnv: # 定义了一个名为 CityEnv 的类，用于模拟城市规划
             [city_config.TYPE_COLOR_MAP[var] for var in existing_types])
         self.plot_and_save_gdf(land_use_road_gdf, cmap, save_fig, path, legend, ticks, bbox)
 
+   # 接受以下参数：
+   # save_fig：一个布尔值，表示是否保存绘图。
+   # path：一个字符串，表示保存绘图的路径（如果 save_fig 为真）。
+   # legend：一个布尔值，表示是否显示图例。
+   # ticks：一个布尔值，表示是否显示坐标轴刻度。
+   # bbox：一个布尔值，表示是否显示图形边界框。
     def visualize_road_and_boundary(self, save_fig: bool = False, path: Text = None, legend: bool = True,
-                                    ticks: bool = True, bbox: bool = True) -> None:
+                                    ticks: bool = True, bbox: bool = True) -> None: # 可视化城市规划
         """
         Visualize the roads and boundaries.
         """
@@ -654,13 +670,13 @@ class CityEnv: # 定义了一个名为 CityEnv 的类，用于模拟城市规划
             [city_config.TYPE_COLOR_MAP[var] for var in existing_types])
         self.plot_and_save_gdf(road_boundary_gdf, cmap, save_fig, path, legend, ticks, bbox)
 
-    def load_plan(self, gdf: GeoDataFrame) -> None:
+    def load_plan(self, gdf: GeoDataFrame) -> None: # 用于加载城市规划数据
         """
         Load a city plan.
         """
         self._plc.load_plan(gdf)
 
-    def score_plan(self, verbose=True) -> Tuple[float, Dict]:
+    def score_plan(self, verbose=True) -> Tuple[float, Dict]: # 用于评分城市规划
         """
         Score the city plan.
         """
@@ -670,7 +686,7 @@ class CityEnv: # 定义了一个名为 CityEnv 的类，用于模拟城市规划
             pprint(info, indent=4, sort_dicts=False)
         return reward, info
 
-    def get_init_plan(self) -> Dict:
+    def get_init_plan(self) -> Dict: # 用于获取初始城市规划的地理数据
         """
         Get the gdf of the city plan.
         """
