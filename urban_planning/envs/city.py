@@ -16,7 +16,7 @@ from urban_planning.envs import city_config
 from urban_planning.utils.config import Config
 
 
-class InfeasibleActionError(ValueError):
+class InfeasibleActionError(ValueError):  # 构建一个报错函数，出错时会返回报错相关信息
     """An infeasible action were passed to the env."""
 
     def __init__(self, action, mask):
@@ -35,9 +35,9 @@ class InfeasibleActionError(ValueError):
         return 'Infeasible action ({}) when the mask is ({})'.format(self.action, self.mask)
 
 
-def reward_info_function(
+def reward_info_function( # 设置各项奖励的权重
     plc: PlanClient,
-    name: Text,
+    name: Text, 
     road_network_weight: float = 1.0,
     life_circle_weight: float = 1.0,
     greenness_weight: float = 1.0,
